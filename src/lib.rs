@@ -25,23 +25,48 @@ fn tokenize(s: &str) -> Result<Vec<Token>, Box<dyn std::error::Error>> {
 }
 
 fn parse(tokens: &[Token]) -> Result<i64, Box<dyn std::error::Error>> {
-    let (first, tail) = match tokens.split_first() {
+    let (i, tail) = match tokens.split_first() {
         None => return Err("Empty string".into()),
         Some((Num(h), t)) => (h, t),
-        _ => return Err("string start with an operator".into()),
+        _ => return Err("Start with an operator".into()),
     };
 
-    tail.chunks(2).fold(Ok(*first), |res, slice| {
-        if slice.len() == 2 {
-            match (slice[0], slice[1]) {
-                (Plus, Num(i)) => res.map(|r| r + i),
-                (Mod, Num(i)) => res.map(|r| r % i),
-                _ => Err("Two consecutive operator or numbers".into()),
-            }
-        } else {
-            Err("Two consecutive operator or numbers".into())
-        }
-    })
+    match tail.split_first() {
+        None => Ok(*i), // only one number
+        Some((Plus, t)) => plus(t, &|n| i + n),
+        Some((Mod, t)) => modulo(t, &|n| i % n),
+        _ => Err("Start with two consecutive number".into()),
+    }
+}
+
+fn plus(tokens: &[Token], func: &dyn Fn(i64) -> i64) -> Result<i64, Box<dyn std::error::Error>> {
+    let (i, tail) = match tokens.split_first() {
+        None => return Err("End with an operator".into()),
+        Some((Num(h), t)) => (h, t),
+        _ => return Err("Two consecutive operator".into()),
+    };
+
+    match tail.split_first() {
+        None => Ok(func(*i)), // end of the calculus
+        Some((Plus, t)) => Ok(func(plus(t, &|n| i + n)?)),
+        Some((Mod, t)) => Ok(func(modulo(t, &|n| i % n)?)),
+        _ => Err("Two consecutive number".into()),
+    }
+}
+
+fn modulo(tokens: &[Token], func: &dyn Fn(i64) -> i64) -> Result<i64, Box<dyn std::error::Error>> {
+    let (i, tail) = match tokens.split_first() {
+        None => return Err("End with an operator".into()),
+        Some((Num(h), t)) => (h, t),
+        _ => return Err("Two consecutive operator".into()),
+    };
+
+    match tail.split_first() {
+        None => Ok(func(*i)), // end of the calculus
+        Some((Plus, t)) => Ok(plus(t, &|n| func(*i) + n)?),
+        Some((Mod, t)) => Ok(modulo(t, &|n| func(*i) % n)?),
+        _ => Err("Two consecutive number".into()),
+    }
 }
 
 #[cfg(test)]
@@ -76,8 +101,8 @@ mod tests {
     fn parse_basic_test() {
         let a = vec![Num(42), Plus, Num(8)];
         assert_eq!(50, parse(&a).unwrap());
-        let a = vec![Num(42), Plus, Num(8), Mod, Num(10)];
-        assert_eq!(0, parse(&a).unwrap());
+        let a = vec![Num(42), Plus, Num(10), Mod, Num(8)];
+        assert_eq!(44, parse(&a).unwrap());
         let a = vec![Num(42), Plus, Num(-50)];
         assert_eq!(-8, parse(&a).unwrap());
     }
@@ -92,5 +117,11 @@ mod tests {
         assert!(parse(&a).is_err());
         let a = vec![Num(12), Plus, Num(8), Num(3)];
         assert!(parse(&a).is_err());
+    }
+
+    #[test]
+    fn real_parse_test() {
+        let a = "735926 % 51245 + 735926 % 913";
+        assert_eq!(compute(&a).unwrap(), 18_544);
     }
 }
